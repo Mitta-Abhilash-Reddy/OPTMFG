@@ -6,7 +6,7 @@ import {
 } from "recharts";
 
 // ─── API LAYER ────────────────────────────────────────────────────────────────
-const API = "http://localhost:8000";
+const API = "https://optmfg.onrender.com";
 
 const api = {
   predict: (params) =>

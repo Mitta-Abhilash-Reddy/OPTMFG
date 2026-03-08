@@ -17,12 +17,11 @@ app = FastAPI(
 # ── CORS (allow React dev server) ─────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # ── Create DB tables on startup ───────────────────────────────────────────────
 @app.on_event("startup")
 def on_startup():
