@@ -1,49 +1,137 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type JSX } from "react";
 import {
   LineChart, Line, ScatterChart, Scatter, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, RadarChart,
   PolarGrid, PolarAngleAxis, Radar, BarChart, Bar, Legend, ReferenceLine
 } from "recharts";
 
+// ─── TYPES ───────────────────────────────────────────────────────────────────
+interface ProcessParams {
+  granulation_time: number;
+  binder_amount: number;
+  drying_temp: number;
+  drying_time: number;
+  compression_force: number;
+  machine_speed: number;
+  lubricant_conc: number;
+  moisture_content: number;
+}
+
+interface PredictResult {
+  energy_batch: number;
+  carbon_batch: number;
+  quality_score: number;
+  reliability_idx: number;
+  hardness: number;
+  friability: number;
+  dissolution_rate: number;
+}
+
+interface OptimizePayload {
+  mode: string;
+  quality_min: number;
+  energy_max: number;
+  pop_size: number;
+  n_gen: number;
+}
+
+interface ParetoSolution {
+  solution_id: number;
+  granulation_time: number;
+  binder_amount: number;
+  drying_temp: number;
+  drying_time: number;
+  compression_force: number;
+  machine_speed: number;
+  lubricant_conc: number;
+  moisture_content: number;
+  energy_batch: number;
+  carbon_batch: number;
+  quality_score: number;
+  reliability_idx: number;
+}
+
+interface OptimizeResult {
+  mode: string;
+  pareto_solutions: ParetoSolution[];
+  recommended: ParetoSolution;
+  n_solutions: number;
+}
+
+interface GoldenSignature {
+  id: number;
+  version: string;
+  granulation_time: number;
+  binder_amount: number;
+  drying_temp: number;
+  drying_time: number;
+  compression_force: number;
+  machine_speed: number;
+  lubricant_conc: number;
+  moisture_content: number;
+  energy_batch: number;
+  carbon_batch: number;
+  quality_score: number;
+  reliability_idx: number;
+  source: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface Decision {
+  id: number;
+  batch_id: string;
+  action: string;
+  params_json: string;
+  energy: number;
+  quality: number;
+  operator_id: string;
+  comment: string;
+  created_at: string;
+}
+
+interface Toast {
+  msg: string;
+  type: string;
+}
+
 // ─── API LAYER ────────────────────────────────────────────────────────────────
 const API = "https://optmfg.onrender.com";
 
 const api = {
-  predict: (params) =>
+  predict: (params: ProcessParams) =>
     fetch(`${API}/predict`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ params }),
     }).then((r) => r.json()),
 
-  optimize: (payload) =>
+  optimize: (payload: OptimizePayload) =>
     fetch(`${API}/optimize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }).then((r) => r.json()),
 
-  getSignatures: () =>
+  getSignatures: (): Promise<GoldenSignature[]> =>
     fetch(`${API}/golden-signatures`).then((r) => r.json()),
 
-  updateSignature: (params, outcomes) =>
+  updateSignature: (params: ProcessParams, outcomes: PredictResult) =>
     fetch(`${API}/golden-signatures/update`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ params, outcomes, source: "optimized" }),
     }).then((r) => r.json()),
 
-  activateSignature: (id) =>
+  activateSignature: (id: number) =>
     fetch(`${API}/golden-signatures/${id}/activate`, {
       method: "PATCH",
     }).then((r) => r.json()),
 
-  getDecisions: (action) =>
-    fetch(`${API}/decisions${action ? `?action=${action}` : ""}`).then((r) =>
-      r.json()
-    ),
+  getDecisions: (action: string | null): Promise<Decision[]> =>
+    fetch(`${API}/decisions${action ? `?action=${action}` : ""}`).then((r) => r.json()),
 
-  logDecision: (payload) =>
+  logDecision: (payload: Record<string, unknown>) =>
     fetch(`${API}/decisions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -51,7 +139,7 @@ const api = {
     }).then((r) => r.json()),
 };
 
-// ─── STATIC FALLBACK DATA (used for charts that need history) ─────────────────
+// ─── STATIC FALLBACK DATA ─────────────────────────────────────────────────────
 const energyTrend = Array.from({ length: 30 }, (_, i) => ({
   batch: i + 1,
   energy: 150 + Math.sin(i * 0.4) * 12 + (Math.random() - 0.5) * 8,
@@ -196,12 +284,12 @@ const css = `
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 const Spinner = () => <span className="spinner" />;
 
-const CustomTooltip = ({ active, payload, label }) => {
+const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: any[]; label?: any }) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="custom-tooltip">
       <div className="ct-label">Batch {label}</div>
-      {payload.map((p, i) => (
+      {payload.map((p: any, i: number) => (
         <div key={i} style={{ color: p.color, fontSize: 12 }}>
           {p.name}: {typeof p.value === "number" ? p.value.toFixed(3) : p.value}
         </div>
@@ -210,7 +298,7 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-const ParetoTooltip = ({ active, payload }) => {
+const ParetoTooltip = ({ active, payload }: { active?: boolean; payload?: any[] }) => {
   if (!active || !payload?.length) return null;
   const d = payload[0]?.payload;
   if (!d) return null;
@@ -226,9 +314,9 @@ const ParetoTooltip = ({ active, payload }) => {
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
 function OverviewView() {
-  const [prediction, setPrediction] = useState(null);
+  const [prediction, setPrediction] = useState<PredictResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [params, setParams] = useState({
+  const [params, setParams] = useState<ProcessParams>({
     granulation_time: 18, binder_amount: 12.5, drying_temp: 178,
     drying_time: 45, compression_force: 12, machine_speed: 116,
     lubricant_conc: 0.8, moisture_content: 6.4,
@@ -239,7 +327,7 @@ function OverviewView() {
     try {
       const result = await api.predict(params);
       setPrediction(result);
-    } catch (e) {
+    } catch (e: any) {
       alert("Prediction failed: " + e.message);
     } finally {
       setLoading(false);
@@ -247,20 +335,19 @@ function OverviewView() {
   };
 
   const radarData = prediction ? [
-    { metric: "Quality",     current: prediction.quality_score * 100,   golden: 96 },
-    { metric: "Energy Eff.", current: Math.max(0, 100 - prediction.energy_batch / 2), golden: 91 },
-    { metric: "Reliability", current: prediction.reliability_idx * 100,  golden: 94 },
-    { metric: "Carbon Eff.", current: Math.max(0, 100 - prediction.carbon_batch / 1.5), golden: 89 },
-    { metric: "Dissolution", current: prediction.dissolution_rate,        golden: 95 },
+    { metric: "Quality",     current: prediction.quality_score * 100,                    golden: 96 },
+    { metric: "Energy Eff.", current: Math.max(0, 100 - prediction.energy_batch / 2),    golden: 91 },
+    { metric: "Reliability", current: prediction.reliability_idx * 100,                  golden: 94 },
+    { metric: "Carbon Eff.", current: Math.max(0, 100 - prediction.carbon_batch / 1.5),  golden: 89 },
+    { metric: "Dissolution", current: prediction.dissolution_rate,                        golden: 95 },
   ] : [];
 
   return (
     <div>
-      {/* Parameter Inputs */}
       <div className="card mb">
         <div className="card-title">Simulate Batch Parameters</div>
         <div className="input-row">
-          {Object.entries(params).map(([key, val]) => (
+          {(Object.entries(params) as [keyof ProcessParams, number][]).map(([key, val]) => (
             <div className="input-group" key={key}>
               <label>{key.replace(/_/g, " ")}</label>
               <input type="number" value={val} step="0.1"
@@ -273,15 +360,14 @@ function OverviewView() {
         </button>
       </div>
 
-      {/* KPI Cards */}
       {prediction && (
         <>
           <div className="kpi-grid">
             {[
-              { cls: "energy",      label: "Energy / Batch",  value: prediction.energy_batch.toFixed(1),          unit: "kWh" },
-              { cls: "carbon",      label: "CO₂ / Batch",     value: prediction.carbon_batch.toFixed(1),          unit: "kg"  },
-              { cls: "quality",     label: "Quality Score",   value: (prediction.quality_score * 100).toFixed(1), unit: "%"   },
-              { cls: "reliability", label: "Reliability",     value: (prediction.reliability_idx * 100).toFixed(1), unit: "%"  },
+              { cls: "energy",      label: "Energy / Batch",  value: prediction.energy_batch.toFixed(1),           unit: "kWh" },
+              { cls: "carbon",      label: "CO₂ / Batch",     value: prediction.carbon_batch.toFixed(1),           unit: "kg"  },
+              { cls: "quality",     label: "Quality Score",   value: (prediction.quality_score * 100).toFixed(1),  unit: "%"   },
+              { cls: "reliability", label: "Reliability",     value: (prediction.reliability_idx * 100).toFixed(1),unit: "%"   },
             ].map(k => (
               <div className={`kpi-card ${k.cls}`} key={k.cls}>
                 <div className="kpi-label">{k.label}</div>
@@ -289,16 +375,15 @@ function OverviewView() {
               </div>
             ))}
           </div>
-
           <div className="grid-2 mb">
             <div className="card">
               <div className="card-title">Quality Sub-Metrics</div>
               <table className="table">
                 <tbody>
                   {[
-                    { label: "Hardness",         val: `${prediction.hardness} N`,   color: "#00d4ff" },
-                    { label: "Friability",        val: `${prediction.friability}%`,  color: "#ff6b35" },
-                    { label: "Dissolution Rate",  val: `${prediction.dissolution_rate}%`, color: "#ffd700" },
+                    { label: "Hardness",        val: `${prediction.hardness} N`,             color: "#00d4ff" },
+                    { label: "Friability",       val: `${prediction.friability}%`,            color: "#ff6b35" },
+                    { label: "Dissolution Rate", val: `${prediction.dissolution_rate}%`,      color: "#ffd700" },
                   ].map((r, i) => (
                     <tr key={i}>
                       <td style={{ color: "var(--muted)" }}>{r.label}</td>
@@ -324,7 +409,6 @@ function OverviewView() {
         </>
       )}
 
-      {/* Historical Trend */}
       <div className="card">
         <div className="card-title">Energy & Carbon Trend (Simulated History)</div>
         <ResponsiveContainer width="100%" height={200}>
@@ -345,14 +429,14 @@ function OverviewView() {
 
 // ─── OPTIMIZATION ─────────────────────────────────────────────────────────────
 function OptimizationView() {
-  const [mode, setMode]         = useState("balanced");
-  const [loading, setLoading]   = useState(false);
-  const [result, setResult]     = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [toast, setToast]       = useState(null);
-  const [config, setConfig]     = useState({ quality_min: 0.90, energy_max: 160, pop_size: 80, n_gen: 60 });
+  const [mode, setMode]           = useState("balanced");
+  const [loading, setLoading]     = useState(false);
+  const [result, setResult]       = useState<OptimizeResult | null>(null);
+  const [selected, setSelected]   = useState<ParetoSolution | null>(null);
+  const [toast, setToast]         = useState<Toast | null>(null);
+  const [config, setConfig]       = useState({ quality_min: 0.90, energy_max: 160, pop_size: 80, n_gen: 60 });
 
-  const showToast = (msg, type = "success") => {
+  const showToast = (msg: string, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
@@ -361,33 +445,33 @@ function OptimizationView() {
     setLoading(true);
     setResult(null);
     try {
-      const data = await api.optimize({ mode, ...config });
+      const data: OptimizeResult = await api.optimize({ mode, ...config });
       setResult(data);
       setSelected(data.recommended);
       showToast(`Found ${data.n_solutions} Pareto-optimal solutions`);
-    } catch (e) {
+    } catch (e: any) {
       showToast("Optimization failed: " + e.message, "danger");
     } finally {
       setLoading(false);
     }
   };
 
-  const promoteToGolden = async (sol) => {
+  const promoteToGolden = async (sol: ParetoSolution) => {
     try {
-      const params = {
+      const params: ProcessParams = {
         granulation_time: sol.granulation_time, binder_amount: sol.binder_amount,
-        drying_temp: sol.drying_temp, drying_time: sol.drying_time,
+        drying_temp: sol.drying_temp,           drying_time: sol.drying_time,
         compression_force: sol.compression_force, machine_speed: sol.machine_speed,
-        lubricant_conc: sol.lubricant_conc, moisture_content: sol.moisture_content,
+        lubricant_conc: sol.lubricant_conc,     moisture_content: sol.moisture_content,
       };
-      const outcomes = {
+      const outcomes: PredictResult = {
         energy_batch: sol.energy_batch, carbon_batch: sol.carbon_batch,
         quality_score: sol.quality_score, reliability_idx: sol.reliability_idx,
         hardness: 0, friability: 0, dissolution_rate: 0,
       };
       const res = await api.updateSignature(params, outcomes);
       showToast(res.added ? `Promoted to Golden Signature ${res.version}` : "Already dominated by existing signature");
-    } catch (e) {
+    } catch (e: any) {
       showToast("Promotion failed", "danger");
     }
   };
@@ -400,8 +484,6 @@ function OptimizationView() {
           <span>{toast.msg}</span>
         </div>
       )}
-
-      {/* Config */}
       <div className="card mb">
         <div className="card-title">Optimization Configuration</div>
         <div className="flex-center gap mb">
@@ -421,7 +503,7 @@ function OptimizationView() {
           ].map(f => (
             <div className="input-group" key={f.key}>
               <label>{f.label}</label>
-              <input type="number" value={config[f.key]} step={f.step}
+              <input type="number" value={config[f.key as keyof typeof config]} step={f.step}
                 onChange={e => setConfig(c => ({ ...c, [f.key]: parseFloat(e.target.value) }))} />
             </div>
           ))}
@@ -429,9 +511,7 @@ function OptimizationView() {
         <button className="btn btn-primary" onClick={runOptimize} disabled={loading}>
           {loading ? <><Spinner /> Running NSGA-II...</> : "▶ RUN OPTIMIZATION"}
         </button>
-        {loading && <span style={{ marginLeft: 12, fontSize: 11, color: "var(--muted)" }}>
-          This may take 15–30 seconds...
-        </span>}
+        {loading && <span style={{ marginLeft: 12, fontSize: 11, color: "var(--muted)" }}>This may take 15–30 seconds...</span>}
       </div>
 
       {result && (
@@ -448,11 +528,10 @@ function OptimizationView() {
                     domain={[0.85, 1.0]} label={{ value: "Quality Score", fill: "#4a6070", fontSize: 10, angle: -90, position: "insideLeft" }} />
                   <Tooltip content={<ParetoTooltip />} />
                   <Scatter data={result.pareto_solutions} fill="#ff6b35" stroke="#ff8c5a"
-                    onClick={(d) => setSelected(d)} cursor="pointer" />
+                    onClick={(d: any) => setSelected(d as ParetoSolution)} cursor="pointer" />
                 </ScatterChart>
               </ResponsiveContainer>
             </div>
-
             <div className="card">
               <div className="card-title">Recommended Solution</div>
               {selected && (
@@ -475,8 +554,6 @@ function OptimizationView() {
               )}
             </div>
           </div>
-
-          {/* Solutions Table */}
           <div className="card">
             <div className="card-title">All Pareto Solutions ({result.n_solutions})</div>
             <div className="table-wrap">
@@ -511,12 +588,9 @@ function OptimizationView() {
           </div>
         </>
       )}
-
       {!result && !loading && (
         <div className="card">
-          <div className="empty-state">
-            Configure parameters above and click RUN OPTIMIZATION to generate Pareto-optimal solutions.
-          </div>
+          <div className="empty-state">Configure parameters above and click RUN OPTIMIZATION to generate Pareto-optimal solutions.</div>
         </div>
       )}
     </div>
@@ -525,11 +599,11 @@ function OptimizationView() {
 
 // ─── GOLDEN SIGNATURES ────────────────────────────────────────────────────────
 function GoldenSignatureView() {
-  const [sigs, setSigs]     = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [toast, setToast]   = useState(null);
+  const [sigs, setSigs]         = useState<GoldenSignature[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [toast, setToast]       = useState<Toast | null>(null);
 
-  const showToast = (msg, type = "success") => {
+  const showToast = (msg: string, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
@@ -539,7 +613,7 @@ function GoldenSignatureView() {
     try {
       const data = await api.getSignatures();
       setSigs(Array.isArray(data) ? data : []);
-    } catch (e) {
+    } catch {
       showToast("Failed to load signatures", "danger");
     } finally {
       setLoading(false);
@@ -548,12 +622,12 @@ function GoldenSignatureView() {
 
   useEffect(() => { load(); }, [load]);
 
-  const activate = async (id) => {
+  const activate = async (id: number) => {
     try {
       await api.activateSignature(id);
       showToast("Signature activated!");
       load();
-    } catch (e) {
+    } catch {
       showToast("Failed to activate", "danger");
     }
   };
@@ -562,7 +636,6 @@ function GoldenSignatureView() {
     name: s.version,
     energy: s.energy_batch,
     carbon: s.carbon_batch,
-    quality: (s.quality_score * 100).toFixed(1),
   }));
 
   return (
@@ -572,50 +645,30 @@ function GoldenSignatureView() {
           <span>{toast.type === "success" ? "✓" : "⚠"}</span><span>{toast.msg}</span>
         </div>
       )}
-
       <div className="flex-between mb">
-        <span style={{ fontSize: 12, color: "var(--muted)" }}>
-          {sigs.length} signature{sigs.length !== 1 ? "s" : ""} stored
-        </span>
-        <button className="btn btn-muted" onClick={load} style={{ fontSize: 11 }}>
-          ↻ REFRESH
-        </button>
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>{sigs.length} signature{sigs.length !== 1 ? "s" : ""} stored</span>
+        <button className="btn btn-muted" onClick={load} style={{ fontSize: 11 }}>↻ REFRESH</button>
       </div>
-
       {loading ? (
         <div className="card"><div className="empty-state"><Spinner /> Loading signatures...</div></div>
       ) : sigs.length === 0 ? (
-        <div className="card">
-          <div className="empty-state">
-            No golden signatures yet. Run the Optimization engine and promote a solution to create one.
-          </div>
-        </div>
+        <div className="card"><div className="empty-state">No golden signatures yet. Run the Optimization engine and promote a solution to create one.</div></div>
       ) : (
         sigs.map(sig => (
           <div key={sig.id} className={`sig-card ${sig.is_active ? "active-sig" : ""}`}>
             <div className="sig-header">
               <div className="flex-center gap">
                 <span className="sig-version">{sig.version}</span>
-                <span className={`tag ${sig.is_active ? "tag-active" : "tag-historical"}`}>
-                  {sig.is_active ? "● ACTIVE" : "ARCHIVED"}
-                </span>
-                <span className={`tag ${sig.source === "optimized" ? "tag-optimized" : "tag-historical"}`}>
-                  {sig.source?.toUpperCase()}
-                </span>
+                <span className={`tag ${sig.is_active ? "tag-active" : "tag-historical"}`}>{sig.is_active ? "● ACTIVE" : "ARCHIVED"}</span>
+                <span className={`tag ${sig.source === "optimized" ? "tag-optimized" : "tag-historical"}`}>{sig.source?.toUpperCase()}</span>
               </div>
               <div className="flex-center gap">
-                <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                  {new Date(sig.created_at).toLocaleDateString()}
-                </span>
+                <span style={{ fontSize: 11, color: "var(--muted)" }}>{new Date(sig.created_at).toLocaleDateString()}</span>
                 {!sig.is_active && (
-                  <button className="btn btn-muted" style={{ fontSize: 10, padding: "3px 8px" }}
-                    onClick={() => activate(sig.id)}>
-                    SET ACTIVE
-                  </button>
+                  <button className="btn btn-muted" style={{ fontSize: 10, padding: "3px 8px" }} onClick={() => activate(sig.id)}>SET ACTIVE</button>
                 )}
               </div>
             </div>
-
             <div className="sig-params">
               {[
                 { name: "Gran. Time",  val: `${sig.granulation_time} min` },
@@ -633,13 +686,12 @@ function GoldenSignatureView() {
                 </div>
               ))}
             </div>
-
             <div className="sig-metrics">
               {[
-                { label: "Energy",      val: `${sig.energy_batch} kWh`,          color: "#00d4ff" },
-                { label: "Carbon",      val: `${sig.carbon_batch} kg`,            color: "#00ff9d" },
-                { label: "Quality",     val: sig.quality_score?.toFixed(4),       color: "#ffd700" },
-                { label: "Reliability", val: sig.reliability_idx?.toFixed(4),     color: "#ff6b35" },
+                { label: "Energy",      val: `${sig.energy_batch} kWh`,      color: "#00d4ff" },
+                { label: "Carbon",      val: `${sig.carbon_batch} kg`,        color: "#00ff9d" },
+                { label: "Quality",     val: sig.quality_score?.toFixed(4),   color: "#ffd700" },
+                { label: "Reliability", val: sig.reliability_idx?.toFixed(4), color: "#ff6b35" },
               ].map((m, i) => (
                 <div className="sig-metric" key={i}>
                   <span className="sig-metric-label">{m.label}:</span>
@@ -650,7 +702,6 @@ function GoldenSignatureView() {
           </div>
         ))
       )}
-
       {barData.length > 1 && (
         <div className="card" style={{ marginTop: 14 }}>
           <div className="card-title">Signature Performance Comparison</div>
@@ -661,7 +712,7 @@ function GoldenSignatureView() {
               <YAxis tick={{ fill: "#4a6070", fontSize: 10 }} />
               <Tooltip contentStyle={{ background: "#0d1117", border: "1px solid #1e2d3d", fontSize: 11 }} />
               <Bar dataKey="energy" fill="#00d4ff" fillOpacity={0.7} name="Energy (kWh)" />
-              <Bar dataKey="carbon" fill="#00ff9d" fillOpacity={0.7} name="Carbon (kg)"  />
+              <Bar dataKey="carbon" fill="#00ff9d" fillOpacity={0.7} name="Carbon (kg)" />
               <Legend wrapperStyle={{ fontSize: 11, color: "#7a9ab0" }} />
             </BarChart>
           </ResponsiveContainer>
@@ -673,10 +724,10 @@ function GoldenSignatureView() {
 
 // ─── DECISIONS ────────────────────────────────────────────────────────────────
 function DecisionsView() {
-  const [decisions, setDecisions] = useState([]);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
   const [loading, setLoading]     = useState(true);
   const [filter, setFilter]       = useState("all");
-  const [toast, setToast]         = useState(null);
+  const [toast, setToast]         = useState<Toast | null>(null);
   const [form, setForm] = useState({
     batch_id: "", action: "accepted", operator_id: "", comment: "",
     energy: 130, quality: 0.95,
@@ -684,7 +735,7 @@ function DecisionsView() {
               compression_force:12, machine_speed:116, lubricant_conc:0.8, moisture_content:6.4 }
   });
 
-  const showToast = (msg, type = "success") => {
+  const showToast = (msg: string, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
@@ -694,7 +745,7 @@ function DecisionsView() {
     try {
       const data = await api.getDecisions(filter === "all" ? null : filter);
       setDecisions(Array.isArray(data) ? data : []);
-    } catch (e) {
+    } catch {
       showToast("Failed to load decisions", "danger");
     } finally {
       setLoading(false);
@@ -713,7 +764,7 @@ function DecisionsView() {
       showToast("Decision logged successfully!");
       setForm(f => ({ ...f, batch_id: "", comment: "" }));
       load();
-    } catch (e) {
+    } catch {
       showToast("Failed to log decision", "danger");
     }
   };
@@ -731,20 +782,18 @@ function DecisionsView() {
           <span>{toast.type === "success" ? "✓" : "⚠"}</span><span>{toast.msg}</span>
         </div>
       )}
-
-      {/* Log new decision */}
       <div className="card mb">
         <div className="card-title">Log Operator Decision</div>
         <div className="input-row">
           {[
-            { key: "batch_id",    label: "Batch ID",     type: "text"   },
-            { key: "operator_id", label: "Operator ID",  type: "text"   },
-            { key: "energy",      label: "Energy (kWh)", type: "number" },
-            { key: "quality",     label: "Quality Score",type: "number" },
+            { key: "batch_id",    label: "Batch ID",      type: "text"   },
+            { key: "operator_id", label: "Operator ID",   type: "text"   },
+            { key: "energy",      label: "Energy (kWh)",  type: "number" },
+            { key: "quality",     label: "Quality Score", type: "number" },
           ].map(f => (
             <div className="input-group" key={f.key}>
               <label>{f.label}</label>
-              <input type={f.type} value={form[f.key]} step="0.01"
+              <input type={f.type} value={form[f.key as keyof typeof form] as string | number} step="0.01"
                 onChange={e => setForm(p => ({ ...p, [f.key]: f.type === "number" ? parseFloat(e.target.value) : e.target.value }))} />
             </div>
           ))}
@@ -765,8 +814,6 @@ function DecisionsView() {
         </div>
         <button className="btn btn-primary" onClick={submitDecision}>✓ LOG DECISION</button>
       </div>
-
-      {/* Stats */}
       <div className="grid-3 mb">
         {[
           { label: "Accepted", count: counts.accepted, color: "#00ff9d" },
@@ -779,8 +826,6 @@ function DecisionsView() {
           </div>
         ))}
       </div>
-
-      {/* Filter + Table */}
       <div className="card">
         <div className="flex-between mb">
           <div className="flex-center gap">
@@ -793,7 +838,6 @@ function DecisionsView() {
           </div>
           <button className="btn btn-muted" style={{ fontSize: 11 }} onClick={load}>↻ REFRESH</button>
         </div>
-
         {loading ? (
           <div className="empty-state"><Spinner /> Loading...</div>
         ) : decisions.length === 0 ? (
@@ -816,9 +860,7 @@ function DecisionsView() {
                     <td className="mono" style={{ color: "#ffd700" }}>{d.quality}</td>
                     <td>{d.operator_id}</td>
                     <td style={{ color: "#4a6070", fontStyle: "italic", fontSize: 11 }}>{d.comment}</td>
-                    <td className="mono" style={{ fontSize: 10, color: "#4a6070" }}>
-                      {new Date(d.created_at).toLocaleString()}
-                    </td>
+                    <td className="mono" style={{ fontSize: 10, color: "#4a6070" }}>{new Date(d.created_at).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -832,10 +874,10 @@ function DecisionsView() {
 
 // ─── ASSET HEALTH ─────────────────────────────────────────────────────────────
 function AssetHealthView() {
-  const latest     = anomalyData[anomalyData.length - 1];
-  const health     = latest.healthScore;
-  const healthCls  = health > 0.85 ? "health-good" : health > 0.65 ? "health-warn" : "health-bad";
-  const isAlert    = latest.anomalyScore > 0.5;
+  const latest    = anomalyData[anomalyData.length - 1];
+  const health    = latest.healthScore;
+  const healthCls = health > 0.85 ? "health-good" : health > 0.65 ? "health-warn" : "health-bad";
+  const isAlert   = latest.anomalyScore > 0.5;
 
   return (
     <div>
@@ -845,7 +887,6 @@ function AssetHealthView() {
           <span>Anomaly detected in last 5 batches. Vibration RMS elevated above threshold. Recommend inspection of Machine Line 2.</span>
         </div>
       )}
-
       <div className="grid-3 mb">
         <div className="card flex-center gap">
           <div className={`health-ring ${healthCls}`}>
@@ -853,9 +894,7 @@ function AssetHealthView() {
           </div>
           <div>
             <div className="kpi-label">Machine Health</div>
-            <div style={{ fontSize: 13, color: health > 0.85 ? "#00ff9d" : "#ffd700" }}>
-              {health > 0.85 ? "NOMINAL" : "DEGRADED"}
-            </div>
+            <div style={{ fontSize: 13, color: health > 0.85 ? "#00ff9d" : "#ffd700" }}>{health > 0.85 ? "NOMINAL" : "DEGRADED"}</div>
             <div className="text-muted mt">Line 2 · Batch #30</div>
           </div>
         </div>
@@ -876,7 +915,6 @@ function AssetHealthView() {
           <div className="text-muted mt">Isolation Forest · {isAlert ? "⚠ ALERT" : "✓ Normal"}</div>
         </div>
       </div>
-
       <div className="card mb">
         <div className="card-title">Vibration RMS & Anomaly Score — Last 30 Batches</div>
         <ResponsiveContainer width="100%" height={220}>
@@ -885,13 +923,12 @@ function AssetHealthView() {
             <XAxis dataKey="batch" tick={{ fill: "#4a6070", fontSize: 10 }} />
             <YAxis tick={{ fill: "#4a6070", fontSize: 10 }} />
             <Tooltip content={<CustomTooltip />} />
-            <Line type="monotone" dataKey="vibrationRMS"  stroke="#ff6b35" strokeWidth={1.5} dot={false} name="Vibration RMS" />
-            <Line type="monotone" dataKey="anomalyScore"  stroke="#ff4545" strokeWidth={1.5} dot={false} strokeDasharray="4 2" name="Anomaly Score" />
+            <Line type="monotone" dataKey="vibrationRMS" stroke="#ff6b35" strokeWidth={1.5} dot={false} name="Vibration RMS" />
+            <Line type="monotone" dataKey="anomalyScore" stroke="#ff4545" strokeWidth={1.5} dot={false} strokeDasharray="4 2" name="Anomaly Score" />
             <ReferenceLine y={1.2} stroke="#ffd700" strokeDasharray="4 4" />
           </LineChart>
         </ResponsiveContainer>
       </div>
-
       <div className="card">
         <div className="card-title">Power Consumption Pattern</div>
         <ResponsiveContainer width="100%" height={180}>
@@ -911,30 +948,30 @@ function AssetHealthView() {
 
 // ─── APP SHELL ────────────────────────────────────────────────────────────────
 const VIEWS = [
-  { id: "overview",     icon: "◈", label: "Overview"         },
-  { id: "optimization", icon: "⊕", label: "Optimization"     },
-  { id: "golden",       icon: "◆", label: "Golden Signatures"},
-  { id: "decisions",    icon: "⊞", label: "Decisions"        },
-  { id: "health",       icon: "⊗", label: "Asset Health"     },
+  { id: "overview",     icon: "◈", label: "Overview"          },
+  { id: "optimization", icon: "⊕", label: "Optimization"      },
+  { id: "golden",       icon: "◆", label: "Golden Signatures" },
+  { id: "decisions",    icon: "⊞", label: "Decisions"         },
+  { id: "health",       icon: "⊗", label: "Asset Health"      },
 ];
 
-const VIEW_COMPONENTS = {
+const VIEW_COMPONENTS: Record<string, () => JSX.Element> = {
   overview: OverviewView, optimization: OptimizationView,
   golden: GoldenSignatureView, decisions: DecisionsView, health: AssetHealthView,
 };
 
-const VIEW_TITLES = {
-  overview: "Production Overview",
+const VIEW_TITLES: Record<string, string> = {
+  overview:     "Production Overview",
   optimization: "Multi-Objective Optimization Engine",
-  golden: "Golden Signature Management",
-  decisions: "Human-in-the-Loop Decisions",
-  health: "Energy Pattern & Asset Health",
+  golden:       "Golden Signature Management",
+  decisions:    "Human-in-the-Loop Decisions",
+  health:       "Energy Pattern & Asset Health",
 };
 
 export default function App() {
-  const [view, setView] = useState("overview");
-  const [time, setTime] = useState(new Date());
-  const [apiOk, setApiOk] = useState(null);
+  const [view, setView]   = useState("overview");
+  const [time, setTime]   = useState(new Date());
+  const [apiOk, setApiOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -961,8 +998,7 @@ export default function App() {
           </div>
           <nav className="nav">
             {VIEWS.map(v => (
-              <div key={v.id} className={`nav-item ${view === v.id ? "active" : ""}`}
-                onClick={() => setView(v.id)}>
+              <div key={v.id} className={`nav-item ${view === v.id ? "active" : ""}`} onClick={() => setView(v.id)}>
                 <span>{v.icon}</span>{v.label}
               </div>
             ))}
@@ -976,7 +1012,6 @@ export default function App() {
             <div style={{ marginTop: 4, fontSize: 10 }}>v0.1.0 · Hackathon Build</div>
           </div>
         </aside>
-
         <div className="main">
           <div className="topbar">
             <div className="topbar-title">{VIEW_TITLES[view]}</div>
