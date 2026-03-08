@@ -1,0 +1,43 @@
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ── Environment & Secrets ─────────────────────────────────────────────
+.env
+.env.local
+.env.production
+
+# ── Database ──────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── ML Models (too large for GitHub) ──────────────────────────────────
+models/saved/*.joblib
+models/saved/*.pkl
+models/saved/*.pickle
+
+# ── Node / Frontend ───────────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# ── VS Code ───────────────────────────────────────────────────────────
+.vscode/
+*.code-workspace
+
+# ── Windows ───────────────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Logs ──────────────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
